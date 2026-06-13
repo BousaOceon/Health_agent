@@ -1,0 +1,14 @@
+anthropic
+notion-client==2.2.1
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+pdfplumber
+pytesseract
+Pillow
+python-docx
+beautifulsoup4
+lxml
+PyYAML
+python-dotenv
+flask

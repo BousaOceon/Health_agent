@@ -1,0 +1,12 @@
+.env
+config/gmail_primary_token.json
+config/gmail_secondary_token.json
+config/client_secret*.json
+venv/
+__pycache__/
+*.pyc
+*.pyo
+inbox/
+processed/
+logs/
+*.log

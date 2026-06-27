@@ -276,6 +276,36 @@ Phase 1 deviations — **historical, resolved by the SQLite rebuild** (no longer
 
 ---
 
+**Phase 1d — Part A: the engine ✓ COMPLETE (2026-06-27); Parts B/C pending Matt's data**
+
+The full entry-flow engine is built and unit-tested (62 tests, all stubbed — no live Claude calls yet). Modules:
+- `src/claude.py` — model ids (from `settings.models`) + the `call()` seam (mockable).
+- `src/extract.py` — `extract_report` rewired to the new injection set; emits UNASSESSED shells.
+- `src/engine/injection.py` — routing list / provider list / active strategies / Pass-1 benchmarks from SQLite.
+- `src/engine/persist.py` — extraction → DRAFT (appointment + findings + shells + strategy-obs + actions + `appointment_providers`).
+- `src/engine/pass1.py` — `assess()` (atomic, shared with cascade) + `grade_appointment()` (Haiku, at confirmation).
+- `src/engine/pass2.py` — reconciliation (pure logic): Progression/Regression/Addition candidates, gate-tight + idempotent.
+- `src/engine/benchmark.py` — change-log + `governing_benchmark_version` (C10 version key, rowid tie-break) + `seed_baseline`.
+- `src/engine/cascade.py` — version-gated recompute + Pass 2 delta + `recompute_audit`.
+- `src/engine/apply.py` — `apply_candidate` (benchmark-change/-correction, assessment-correction, adjacent-promotion, spin-out, strategy-diff, strategy-status-correction) + `reject_candidate`.
+- `src/engine/strategy.py` — set-diff (match → status_read → strategy-diff candidates) + strategy change-log.
+- `src/engine/summarize.py` — Haiku benchmark-text summarizer (fills candidate `to_value`).
+- `src/engine/safety.py` — capture-time Safety alert (fires at ingest, pluggable notifier).
+- `src/pipeline.py` — `ingest_content` (extract → draft → safety screen) + `confirm_report` (Pass 1 → Pass 2 → set-diff).
+- Dashboard approve/reject now **apply** via the engine.
+
+**Part A deviations & decisions:**
+- **Schema gap fixed:** added `appointment_providers` join table (the authoritative all-attendees multi-relation; schema-doc DDL had omitted it). Plus `candidates.change_type` (additive migration).
+- **Prompts are first DRAFTS** in settings.yaml (extraction_prompt rewritten; assessment_prompt new; benchmark_update_prompt now per-sub-target; `ndis_sub_targets` removed; `models:` block added). Marked `[DRAFT]` — to be refined in Matt's prompt-design session + tuned against real reports during the load.
+- **No live Claude calls yet** — every test stubs the `claude.call` seam. First real calls are the Part C data load.
+- `notion_writer.py` + `test_pipeline.py` deleted (superseded Notion path).
+
+**Engine tests:** `python -m src.engine.test_pass2` (11) · `test_gate` (14) · `test_pass1` (10) · `test_entry_flow` (14) · `test_strategy` (13).
+
+**Part B (two-anchored seeding) + Part C (data load) need Matt's four data items:** the ~20 historical reports, the FSSP report, the 6 blank Active benchmarks (Sleep / Dysphagia / Continence / Gastro / Dental / Growth), and the current active strategy-inventory draft.
+
+---
+
 ## Likely Sticking Points (finalise specifics during 1c)
 
 - **`assess()` is a Haiku call, not pure logic.** The cascade's recompute is **version-gated** (`observations.graded_against_benchmark_id`): re-grade only when the governing benchmark *version* (a change-log id, not the as-of date) moves, so a cascade over an unchanged sub-target makes zero LLM calls and stays idempotent. Pure-logic idempotency is a Pass-2 property only.

@@ -4,6 +4,10 @@ backup:
   target: ""            # off-box destination for the nightly SQLite backup (set before go-live)
   time: "02:00"
 
+models:
+  sonnet: claude-sonnet-4-6
+  haiku: claude-haiku-4-5-20251001
+
 polling_interval_hours: 4
 brief_lead_time_hours: 48
 brief_scope_window_months: 6   # single-provider brief working-set window (design §14)
@@ -68,311 +72,192 @@ extraction_context: |
   itself evidence of progress.
 
 extraction_prompt: |
-  You are extracting structured health data from a clinical report,
-  appointment note, email, or family observation.
+  You are extracting structured health data from a clinical report, appointment note, email, or family observation for a 7-year-old boy (Tom) on the NDIS.
+
+  You do NOT grade anything in this pass. You identify what was said, split it to the right sub-target(s), and attribute it. Grading against benchmarks happens later, after a human confirms the draft. Do not judge whether something is progress, regression, at-level, or a gap -- only record the fact and where it belongs.
+
+  [DRAFT v2 / Phase 1d -- reuses the Phase-1b scaffolding; the goal-notes-with-grading machinery is replaced by fan-out -> unassessed observations. To be refined in a dedicated prompt-design session.]
 
   EXTRACTION CONTEXT:
   ###EXTRACTION_CONTEXT###
 
-  PROVIDER LIST
-
-  These are the known providers (canonical name | aliases | type). When you
-  identify a provider in the report, map them to the canonical name from this
-  list, resolving nicknames and initial forms (e.g. "Maddy" → "Madelaine
-  Tomlin"). If a provider in the report is written as a combined string of
-  several people (e.g. "A, B and C"), treat it as multiple separate providers —
-  never one. If a provider is not in the list, use the name as written and flag
-  it for review.
-
+  PROVIDER LIST (canonical name | aliases | type). Resolve names/nicknames in the report to a canonical name (e.g. "Maddy" -> "Madelaine Tomlin"). If the report writes several people as one combined string ("A, B and C"), treat them as SEPARATE providers -- never one. If a provider is not listed, use the name as written and flag it.
   ###PROVIDER_LIST###
 
   TODAY'S DATE: ###TODAY###
 
-  NDIS GOALS AND BENCHMARKS (use exact goal names; use the benchmarks to judge
-  whether an observation represents meaningful change; each goal lists its valid
-  sub_target option strings — you must emit one of these verbatim):
-  ###GOALS_WITH_BENCHMARKS###
+  SUB-TARGETS (the tracked areas. Route each finding to the sub-target(s) it is directly about, using the id. Format: (id) Title [Goal] -- scope):
+  ###SUBTARGET_ROUTING_LIST###
+
+  ACTIVE STRATEGIES (current tactics, by sub-target -- so you RECOGNISE when the report comments on one. Do NOT match a mention to a specific tactic; just flag strategy-status language):
+  ###ACTIVE_STRATEGY_TITLES###
 
   SOURCE CONTENT:
   ###REPORT_TEXT###
 
   ---
 
+  THE MODEL
+
+  A FINDING is one discrete thing the source says (a clinician statement, an observation, a result). Record each finding once, with its verbatim source_fragment held constant.
+
+  A finding FANS OUT to one or more OBSERVATIONS -- one per sub-target the finding is DIRECTLY and MATERIALLY about. The test, asked once per candidate sub-target: does this finding directly speak to THIS sub-target?
+  - "Tom put his hat on with positioning help" is directly about Self-Care/dressing only -> ONE observation. It only brushes a gross-motor sub-target -> that one is "touched", not recorded.
+  - "Tom climbed the ramp alongside a peer, accepting side-by-side climbing" is directly about BOTH Play/parallel-play AND Gross-Motor/climbing -> TWO observations, each written from its own sub-target's angle, each standalone-readable.
+  Capture broadly, fan reluctantly: record a finding on every sub-target it is genuinely about, but do not spray copies across areas it only brushes.
+
+  OBSERVATIONS ARE UNASSESSED. Record the fact and a short goal-framed note; do NOT add a grade or a progress/regression judgement (no benchmarks are provided in this pass). The shared observed fact must be identical across sibling observations of one finding -- only the framing/emphasis differs.
+
+  SUB-TARGETS TOUCHED: list every sub-target you CONSIDERED (the superset -- those that became observations PLUS those merely brushed). The considered set, not the leftover.
+
+  STRATEGIES: when the source proposes, continues, changes, or stops a tactic/approach (a visual schedule, a timer, a first-then board, "you could try X"), record a strategy_observation tagged to the sub-target. Speculative language proposing an ONGOING approach to a goal IS a strategy -- not noise to discard. Do NOT resolve it to a specific existing tactic; just capture the mention and its status language. One-off concrete tasks are actions, not strategies.
+
+  MEDICAL severity screen: for a finding landing on a Medical sub-target (or the medical pen), set severity_screen by the language: Safety (a choking/airway/serious-harm concern), Watch (monitor), or None. A language screen, not a grade.
+
+  ACTIONS: only genuine next-step tasks with a clear owner. Clinical observations and background are NOT actions.
+
+  If a finding matches no sub-target at all, anchor it to the Unclassified pen (st_pen_unclassified), or st_pen_medical_watch for a medical one.
+
   Return a single valid JSON object. No commentary, no markdown fencing.
 
-  Structure:
   {
     "appointment": {
-      "title": "Provider Name – YYYY-MM-DD",
-      "provider_name": "Primary author or conductor of the session — used for building the title string only. Never a family member. Empty for Family Notes.",
-      "providers": ["Canonical name of every provider present in this session, resolved from the Provider List above. Single-element array for solo sessions. All attendees for multi-provider meetings. Never combine multiple names into one string."],
+      "title": "Provider Name - YYYY-MM-DD",
+      "provider_name": "Primary author/conductor -- for the title only. Never a family member. Empty for Family Notes.",
+      "providers": ["Canonical name of every provider present. Single-element for solo sessions; all attendees for meetings. Never combine names."],
       "appointment_date": "YYYY-MM-DD",
       "report_received_date": "###TODAY###",
       "meeting_type": "Individual | Multi-Provider Meeting | Review | Planning Meeting | Group Program",
       "appointment_type": "Appointment | Report Only | Phone Consult | Hospital | Other Medical | Family Note | Group Program",
-      "status": "Draft",
-      "ndis_relevant": true or false,
-      "summary": "2-3 sentences: what was assessed/treated, any significant finding, general direction. No action items. No observations that become Goal Progress Notes. Write so it makes sense months later without re-reading the source.",
-      "goals_addressed": ["Exact Goal Name from list above"]
+      "summary": "2-3 sentences: what was assessed/treated and the general direction. No action items. No content captured as an observation. Should make sense months later.",
+      "content_sources": ["native-pdf | scanned-image | docx | email-body | email-thread | self-submitted"],
+      "sub_targets_touched": ["sub_target_id", "..."]
     },
-    "actions": [
+    "findings": [
       {
-        "title": "Action written as a clear task starting with a verb",
-        "provider_name": "Clinician who recommended this action. Never Matt or Louise. Empty for Family Note actions.",
-        "assigned_to": "Matt | Louise | Family | Provider | Doc | School | Other",
-        "category": "Medical | OT | Speech | Physio | Other Allied Health | Admin | Equipment | Referral | Medication | NDIS | Meeting Action",
-        "priority": "High | Medium | Low",
-        "status": "Open",
-        "due_date": "YYYY-MM-DD only if explicitly stated in the report; null otherwise",
-        "opened_date": "###TODAY###",
-        "ndis_relevant": true or false,
-        "goal_link": "Exact Goal Name from list above, or empty string",
-        "notes": "Additional context from the report. Empty if title is self-explanatory."
+        "ref": "F1",
+        "source_fragment": "The verbatim fact from the source, held constant across this finding's observations.",
+        "title": "Short label",
+        "fan_out_rationale": "Why this finding fanned to the sub-target(s) it did (which recorded, which only touched, and why).",
+        "fan_out_confidence": "high | medium | low"
       }
     ],
-    "goal_progress_notes": [
+    "observations": [
       {
-        "title": "Exact Goal Name – YYYY-MM-DD",
-        "goal_name": "Exact Goal Name from list above",
-        "source": "Appointment Report | Family Observation | Query Session Observation",
+        "finding_ref": "F1",
+        "sub_target_id": "the id from the SUB-TARGETS list",
         "author": "Provider | Matt | Louise | System",
-        "source_provider_name": "Clinician name only when source is Appointment Report. Empty otherwise. Never a family member.",
+        "source": "Appointment Report | Family Observation | Query Session Observation",
+        "source_provider_name": "Clinician name, only when author is Provider. Never a family member.",
+        "date": "YYYY-MM-DD (the observation/appointment date)",
+        "note": "The fact framed for this sub-target. UNASSESSED -- describe what was observed; do not grade it.",
+        "milestone": true,
+        "severity_screen": "Safety | Watch | None (Medical sub-targets only; null otherwise)"
+      }
+    ],
+    "strategy_observations": [
+      {
+        "finding_ref": "F1 or null",
+        "sub_target_id": "the id this tactic serves",
+        "author": "Provider | Matt | Louise | System",
+        "source_provider_name": "Clinician name when author is Provider; empty otherwise.",
         "date": "YYYY-MM-DD",
-        "note": "Clear, specific observation. For Appointment Report: past tense, attributed to the provider. Be specific and evidence-based.",
-        "type": "Progress | Regression | Milestone | Observation",
-        "sub_target": "One of the exact sub_target option strings listed for this goal in the NDIS GOALS AND BENCHMARKS section above. Emit verbatim. Must start with the correct goal prefix (GM/FE/SC/PS/LC/SE). Use the goal's 'Adjacent' option for Tier 2 observations.",
-        "ndis_reportable": true or false
+        "note": "What was said about the tactic, verbatim-anchored.",
+        "status_language": "proposing-new | continuing | working-stated | not-working-stated | stopping"
+      }
+    ],
+    "actions": [
+      {
+        "title": "Action as a task starting with a verb",
+        "provider_name": "Clinician who recommended it. Never a family member. Empty for Family Note actions.",
+        "assigned_to": "Matt | Louise | Family | Provider | Doc | School | Other",
+        "category": "Medical | OT | Speech | Physio | Other Allied Health | Admin | Equipment | Referral | Medication | NDIS | Meeting Action | Query Session",
+        "priority": "High | Medium | Low",
+        "due_date": "YYYY-MM-DD only if explicitly stated; null otherwise",
+        "sub_target_id": "the id this action serves, or null",
+        "notes": "Context. Empty if the title is self-explanatory."
       }
     ],
     "self_review": {
-      "corrections_made": [
-        {
-          "rule": "Which rule triggered the correction",
-          "original": "The original extracted value before correction",
-          "action_taken": "What was changed or removed",
-          "confidence": "high | medium | low"
-        }
-      ],
-      "flags_for_review": [
-        {
-          "type": "first_name_only | combined_name | unclear_attribution | threshold_close | novel_format",
-          "item": "The specific item flagged",
-          "extraction_used": "What was used in the extraction output",
-          "suggested_action": "What the user should do to resolve this",
-          "confidence": "high | medium | low"
-        }
-      ],
+      "corrections_made": [ { "rule": "...", "original": "...", "action_taken": "...", "confidence": "high|medium|low" } ],
+      "flags_for_review": [ { "type": "first_name_only | combined_name | unclear_attribution | novel_format | uncertain_split", "item": "...", "extraction_used": "...", "suggested_action": "...", "confidence": "high|medium|low" } ],
       "extraction_confidence": "high | medium | low",
       "corrections_count": 0,
       "flags_count": 0
     }
   }
 
-  ## GOAL PROGRESS NOTES
-
-  Default stance: create NO note. A Goal Progress Note is the exception, not
-  the rule. A typical report produces zero. You are not summarising the report
-  against the goals — you are comparing the report to Tom's CURRENT benchmark
-  and recording only what the benchmark does not already account for. The
-  appointment summary, not this section, is where ordinary session content goes.
-
-  The benchmark provided in ###GOALS_WITH_BENCHMARKS### is current. Each named
-  sub-target line carries its own as-of date in the form "(as of YYYY-MM-DD)".
-  That date is the level you compare against — not "today", not the report date.
-
-  For every potential goal-relevant finding, work through these steps:
-
-  STEP 1 — Anchor in time.
-  Use the appointment date you have determined for this report. Find the benchmark
-  sub-target line the finding relates to and read that line's as-of date.
-  - If the appointment date is MORE THAN ONE MONTH BEFORE that line's as-of date,
-    treat the finding as HISTORICAL.
-  - Otherwise (within one month of, or after, the line's as-of date), treat it as
-    CURRENT.
-
-  STEP 2 — Apply the rule for that time class.
-
-  HISTORICAL findings:
-  - Ability at or below the current benchmark level is EXPECTED. It is the normal
-    earlier point on Tom's trajectory. Do NOT create a note for it. Do NOT record
-    it as a Regression. A lower level in an older report is never a regression.
-  - Create a note ONLY if the finding is genuinely NOT represented in the current
-    benchmark for that sub-target — a real gap (a capability, context, or detail
-    the benchmark does not capture). Such a note exists to prompt a benchmark
-    correction on review.
-  - A standardised assessment score from a historical report (e.g. PEDI-CAT,
-    Vineland) is historical baseline data. It belongs in the appointment summary,
-    not in a Goal Progress Note, unless it reveals a capability the benchmark omits.
-
-  CURRENT findings:
-  - Create a note only where the report shows a GENUINE CHANGE from the benchmark
-    level for that sub-target: assisted→independent, generalisation to a new
-    setting, a first-time milestone, a confirmed current regression, or a formal
-    assessment that establishes a new current baseline.
-  - If the report merely confirms the existing benchmark level (expected
-    participation, expected support, routine session content), create NO note.
-
-  STEP 3 — If, and only if, a note is warranted, classify it.
-
-  Sub-target and tier:
-  - If the finding maps to a NAMED sub-target, you MUST use that named sub-target.
-    Never place content that belongs to a named sub-target into an "Adjacent"
-    option. "Adjacent" is not a catch-all.
-  - Use a goal's "Adjacent" option ONLY when the finding is within the Goal scope
-    and clinically meaningful but does not correspond to any named sub-target
-    (Tier 2).
-
-  Type, coupled to tier:
-  - A named sub-target note records a genuine change and is therefore Progress,
-    Regression, or Milestone — never Observation. (If it does not represent a
-    change worth Progress/Regression/Milestone, then per Step 2 it should not be
-    a note at all.)
-  - An "Adjacent" note is Observation.
-  - A historical gap note is Observation or Milestone only — never Progress or
-    Regression (those require a before/after comparison this record cannot
-    provide). Use Milestone for a discrete, dated first-time achievement the
-    benchmark does not record; use Observation for descriptive/contextual detail.
-
-  Every note's sub_target must belong to the same goal as its goal_name.
-  Prefer zero notes over routine capture.
-
-  RULES:
-  - Health Actions: only extract genuine next-step tasks with a clear owner.
-    Clinical observations, assessment findings, and background information are
-    NOT actions — put them in the summary or as Goal Progress Notes.
-  - assigned_to: use Matt or Louise when determinable from context; use Family
-    only when the report refers to both carers collectively or addresses them
-    equally.
-  - category: use OT/Speech/Physio only when the action originates from that
-    specific discipline.
-  - source_provider_name: only populate when source is "Appointment Report".
-    Never populate with Matt or Louise.
-  - providers: list all providers who participated in this session, resolved to
-    canonical names from the Provider List. Never combine multiple names into
-    one string.
-  - Never invent information not present in the source.
+  RULES
+  - Never invent information not in the source.
+  - providers: every participant, canonical names, never combined into one string.
+  - source_provider_name: only when author is Provider; never a family member.
+  - assigned_to: Matt or Louise when determinable; Family only when both carers are addressed equally.
+  - Observations are UNASSESSED -- never include a grade, progress, regression, or at-level judgement.
+  - The source_fragment is identical across a finding's sibling observations; only framing differs.
   - Return valid JSON only.
 
-  SELF-REVIEW:
-  After completing the extraction, review your output against the checks below.
-  Auto-correct and report in corrections_made. Flag unresolvable issues in
-  flags_for_review. Update corrections_count and flags_count.
+  SELF-REVIEW (after extracting, check and auto-correct; report in corrections_made; flag the rest):
+  Auto-correct:
+  - Speculative ACTION language ("consider", "may", "could", "in future") that is a one-off task -> remove or move to summary. EXCEPTION: speculative language proposing an ongoing approach is a STRATEGY -> keep it as a strategy_observation, do not delete.
+  - Family member name in any provider field -> clear it.
+  - assigned_to is Matt when both parents are addressed equally -> Family.
+  - An observation anchored to a sub_target_id not in the SUB-TARGETS list -> re-route to the right id, or to st_pen_unclassified; never drop the fact.
+  - A grade/progress/regression word that slipped into an observation note -> remove the judgement, keep the fact.
+  - Summary longer than 3 sentences -> truncate.
+  Split-coherence (fan-out check): for each finding with multiple observations, confirm the split is sound -- the finding is genuinely about each sub-target it was fanned to. If two siblings clearly do not both belong, correct the split. (Do NOT check assessment coherence -- there are no grades in this pass.)
+  Flag for review: first-name-only or unresolved combined provider; unclear attribution in a multi-provider meeting; a fan-out split you are unsure about; a novel format with low confidence.
+  Final reconciliation (last): every item you reported as removed in corrections_made must be ABSENT from the output arrays. Delete any that slipped through before returning.
 
-  Auto-correct and report in corrections_made:
-  - Speculative action language ("consider", "potential to", "may", "could",
-    "in future") → remove the action or move content to the summary
-  - Summary longer than 3 sentences → truncate to 3 sentences
-  - Goal name not in the provided goals list → remove from goal_progress_notes,
-    move the observation to the summary
-  - Family member name in any provider field → clear the field
-  - assigned_to is Matt when the report addresses both parents equally →
-    change to Family
-  - Priority set to High when only Medium is warranted → downgrade with
-    reasoning
-  - sub_target prefix does not match goal_name (GM=Gross Motor Skills,
-    FE=Feelings and Emotions, SC=Self-Care Independence, PS=Play Skills,
-    LC=Language and Communication, SE=School Environment) → correct sub_target
-    to a valid option for that goal, or clear it if no valid option fits, and
-    report in corrections_made
-  - Default-zero not respected: a Goal Progress Note exists that is routine,
-    at-benchmark, or expected-for-historical content (not a genuine change from
-    the current benchmark for a current report, and not a genuine gap for any
-    report) → remove the note; move content to the appointment summary
-  - Historical finding at or below the benchmark level recorded as a note or
-    Regression (appointment date >1 month before the relevant sub-target line's
-    as-of date) → remove the note; a lower level in an older report is never a
-    Regression
-  - Named sub-target content placed in an "Adjacent" option → correct to the
-    named sub-target; change type to Progress, Regression, or Milestone
-  - Type does not match tier (named sub-target note typed Observation, or
-    Adjacent note typed Progress/Regression/Milestone) → correct the type
-  - Goal Progress Note's sub_target does not belong to the same goal as
-    goal_name → correct to a valid option for that goal, or remove the note
+assessment_prompt: |
+  You are grading already-extracted observations against the current benchmark for each sub-target (Pass 1). One observation, one grade. You are NOT re-extracting -- the facts are fixed; you judge each against its sub-target's benchmark as it stood on the observation's date.
 
-  Flag for user decision in flags_for_review:
-  - First-name-only provider or combined provider string that cannot be
-    resolved from the Provider List
-  - Unclear provider attribution in a multi-provider meeting
-  - Goal Progress Note close to the benchmark threshold (uncertain whether it
-    clears the Tier 1 or Tier 2 bar)
-  - Novel report format where extraction confidence is low
+  [DRAFT v1 / Phase 1d -- to be refined in a dedicated prompt-design session.]
 
-  Final reconciliation (do this last, before returning): for every entry in
-  corrections_made that records removing or deleting a note or action, confirm
-  that item is ABSENT from goal_progress_notes and actions. The output arrays
-  are the source of truth — anything you reported as removed must not appear in
-  the output. Delete any item that slipped through before returning.
+  CONTEXT:
+  ###EXTRACTION_CONTEXT###
+
+  BENCHMARKS (the current level for each sub-target these observations touch; each carries an as-of date):
+  ###BENCHMARKS###
+
+  OBSERVATIONS TO GRADE (each has a ref, its sub_target, the fact/note, and the date):
+  ###OBSERVATIONS###
+
+  APPOINTMENT DATE: ###APPOINTMENT_DATE###
+
+  For each observation, assign ONE assessment against its sub-target's benchmark:
+  - Lower -- below the benchmark level.
+  - At -- confirms the benchmark level. This is normal and expected; MOST observations are At.
+  - Above -- clearly exceeds the benchmark (independent where the benchmark says assisted, generalised to a new setting, or sustained unprompted).
+  - Gap -- the fact falls clearly inside this NAMED sub-target but the benchmark is silent on this specific case (drives a benchmark extension).
+  - Adjacent -- within the goal's scope but the sub-target has NO benchmark to judge against (un-benchmarked / watch). Assessment N/A.
+
+  Judge against the benchmark AS OF the observation's date, not today. For Tom, adult prompting/support is the baseline -- "participated with support" is At, not Above, unless the benchmark expected less. Default to At when uncertain; only call Above or Lower on clear evidence. Be honest with confidence -- a run of low-confidence At grades is a useful signal.
+
+  Return a JSON array, one object per observation, no commentary, no markdown fencing:
+  [ { "ref": "the observation ref", "assessment": "Lower|At|Above|Gap|Adjacent", "rationale": "one line: why, citing the benchmark", "confidence": "high|medium|low" } ]
 
 benchmark_update_prompt: |
-  You are updating the Current Benchmark for a single NDIS goal after an
-  approved Goal Progress Note. Return only the updated benchmark text — no
-  commentary, no JSON wrapper.
+  You are updating the current benchmark for ONE sub-target after an approved change. Return only the updated benchmark text -- a present-tense description of where Tom is now on this sub-target. No commentary, no JSON wrapper.
 
-  GOAL: ###GOAL_NAME###
+  [DRAFT v2 / Phase 1d -- now per-sub-target (single benchmark), not the old 3-part per-goal structure.]
 
-  APPOINTMENT DATE (stamp changed sub-target lines with this date): ###APPOINTMENT_DATE###
+  SUB-TARGET: ###SUBTARGET_TITLE###
+  CHANGE TYPE: ###CHANGE_TYPE###    (Progression | Regression | Addition)
+  EFFECTIVE DATE: ###EFFECTIVE_DATE###
 
   CURRENT BENCHMARK:
   ###CURRENT_BENCHMARK###
 
-  APPROVED GOAL PROGRESS NOTE:
-  ###PROGRESS_NOTE###
+  SUPPORTING OBSERVATIONS (the evidence that drove this change):
+  ###SUPPORTING_OBSERVATIONS###
 
   Rules:
-  - The benchmark has three parts: "Goal scope:", "Current sub-target
-    levels:" (a labelled list), and "Overall summary:". Preserve this
-    structure exactly. Update only the specific sub-target line(s) the
-    note addresses and, if needed, the Overall summary. Do not rewrite
-    Goal scope. Do not collapse the structure into a single paragraph.
-    Return the full updated benchmark text in the same three-part format.
-  - Update only the sub-target line(s) that this note directly addresses.
-    Leave all other sub-target lines unchanged.
-  - Each sub-target line carries an as-of date in the form "(as of YYYY-MM-DD)".
-    When you update a sub-target line, replace its as-of date with the
-    appointment date (###APPOINTMENT_DATE###). Leave the as-of dates on ALL
-    OTHER sub-target lines exactly as they appear in the current benchmark.
-  - If the note represents a meaningful change to the overall picture,
-    update the Overall summary. Otherwise leave it unchanged.
-  - Do not add new sub-targets not already in the list.
-  - Do not change the Goal scope section.
-  - Return the complete three-part benchmark, not just the changed lines.
-
-ndis_sub_targets:
-  "Gross Motor Skills":
-    - "GM: Walk/terrain & steps"
-    - "GM: Stamina & range"
-    - "GM: Catch & throw"
-    - "GM: Community participation"
-    - "GM: Adjacent"
-  "Feelings and Emotions":
-    - "FE: Manage big behaviours"
-    - "FE: Adjacent"
-  "Self-Care Independence":
-    - "SC: Personal safety awareness"
-    - "SC: Dressing 50%"
-    - "SC: Toileting"
-    - "SC: Hand washing"
-    - "SC: Open cup"
-    - "SC: Chewing harder foods"
-    - "SC: Adjacent"
-  "Play Skills":
-    - "PS: Tolerate others in space"
-    - "PS: Environment safety scanning"
-    - "PS: Reciprocal play"
-    - "PS: Sensory play"
-    - "PS: Adjacent"
-  "Language and Communication":
-    - "LC: Spoken language at kinder"
-    - "LC: Identify parts of objects"
-    - "LC: 3-step commands"
-    - "LC: Recall recent events"
-    - "LC: Speech clarity"
-    - "LC: Pronouns (mine/me)"
-    - "LC: Adjacent"
-  "School Environment":
-    - "SE: Build fatigue levels"
-    - "SE: Danger awareness new environments"
-    - "SE: Adjacent"
+  - Return a single present-tense description of Tom's CURRENT level on this sub-target, incorporating the change.
+  - Progression: raise the level to reflect the new, higher capability shown by the observations.
+  - Regression: lower the level to reflect the decline.
+  - Addition: keep the existing level but add the case/detail the benchmark was missing.
+  - Stay specific and evidence-based; keep it to a short paragraph. Do not invent beyond the observations.
+  - Describe the state, not the change history.
 
 stage_2_prompt: |
   Assess whether this email is a health appointment report,

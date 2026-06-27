@@ -251,18 +251,26 @@ Phase 1 deviations — **historical, resolved by the SQLite rebuild** (no longer
 
 ## Current Build Phase
 
-**Phase 1c – Stand up the SQLite store (structure + seed). ← IN PROGRESS**
+**Phase 1c – Stand up the SQLite store (structure + seed). ✓ COMPLETE (2026-06-27)**
 
-Build scope (handoff §7, design §21, schema doc):
-- [ ] Create `data/health.db`; stand up all outcome-layer tables per the schema DDL — append-only change-log triggers, `CHECK` constraints, indexes. Include `users` + `recompute_audit`.
-- [ ] Build `src/db/` (schema.py, store.py, providers.py); migrate provider-matching into `providers.py`; retire `notion_writer.py`.
-- [ ] Re-anchor Health Actions to sub-target; `appointments` gains `sub_targets_touched` + `content_sources`.
-- [ ] Seed the **36-row sub-target spine** (Decision A) two-anchored: year-ago FSSP **Baseline** + 13/06 hand-written benchmark as latest-confirmed. Seed Other's 4 candidate domains Adjacent-watch (Sleep **Active**), the 5 Medical watch domains, the 2 holding pens.
-  - **5 rows stood up benchmark-blank** (Fine Motor current level, Continence-medical, Gastro, Dental, Growth) — Matt fills before the 1d data load; they do **not** block the structural build.
-- [ ] Stand up the day-one **Flask Candidates review page** (structured rows, grouped by sub-target, inline approve/reject) + the **nightly off-box backup**.
-- [ ] No MCP connection — engine is local SQLite.
+- [x] `data/health.db` + all 14 outcome-layer tables per the schema DDL — append-only change-log triggers, `CHECK` constraints, indexes, FK on, `users` + `recompute_audit`. (`src/db/schema.py`)
+- [x] `src/db/` package (schema.py, store.py, providers.py); provider-matching migrated to `providers.py`. (`notion_writer.py` left in place but superseded — see deviations.)
+- [x] Health Actions re-anchored to sub-target; `appointments` has `sub_targets_touched` + `content_sources`.
+- [x] **36-row spine seeded + validated** (`src/db/seed_data.py`, `seed.py`): 8 goal pages, 36 sub-targets, 25 benchmarked @ 2026-06-13, 3 Adjacent-watch Other rows, Sleep + Dysphagia + 4 medical gap-blanks seeded blank. 11 providers migrated from Notion; matching verified.
+- [x] Day-one **Flask Candidates review page** (`src/dashboard/`, grouped by sub-target, inline approve/reject + typed reason) + **nightly backup** (`src/backup.py`).
+- [x] No MCP in the engine — local SQLite only. (Notion MCP was used once to *pull seed data*; the running code has zero MCP.)
 
-**Phase 1c does NOT include** the engine logic (Pass 1/Pass 2/cascade), the data load, or ingestion — those are 1d and Phase 2. 1c is structural stand-up + seed.
+**Phase 1c deviations & decisions:**
+- **`benchmark_change_log` is NOT seeded in 1c.** The 13/06 benchmark lives on `sub_targets.current_benchmark`/`benchmark_as_of`. Both change-log anchors (FSSP Baseline + 13/06) are written in **1d** so the append-only log stays chronologically correct (avoids a double-Baseline). FSSP Baseline deferred to start of 1d (agreed).
+- **`ndis_outcome_domain` seeded NULL for all 36 rows.** Decision A resolved NDIS-goal + DIP + SSG only; the NDIS Outcomes Framework tag is a later projection task (needed before NDIS-outcome-projected reporting, not before 1d).
+- **Carved benchmarks:** the 5 setting-split carves use the fuller 13/06 Notion text as `current_benchmark` and the Decision-A split wording as `scope_line`; the 3 behaviour carves use the Decision-A carved text (no separate Notion line existed). (Agreed approach.)
+- **Title prefixes dropped** — titles stand alone; grouping is by tag (goal/DIP/SSG), per design §3.2.
+- **`notion_writer.py` + `test_pipeline.py` (old Notion path) left in place, superseded.** Provider-matching is already migrated to `src/db/providers.py`; physically deleting them + rewriting `test_pipeline.py` for SQLite is folded into the 1d pipeline build (which replaces test_pipeline anyway). Nothing in `src/db/` imports them.
+- **Candidate approve/reject in 1c records the decision (lifecycle + typed reason) only** — applying the change (mutation + cascade) is wired in 1d.
+
+**Phase 1c did NOT include** the engine logic (Pass 1/Pass 2/cascade), the data load, or ingestion — those are 1d and Phase 2.
+
+**Run it:** `python -m src.db.seed` (build + seed + validate) · `python -m src.dashboard.app` (dashboard at localhost:5000; add `--host=0.0.0.0` on the Pi) · `python -m src.backup` (snapshot).
 
 **Then:** Phase 1d (engine + historical data load, two-anchored, oldest-first), Phase 2 (Gmail ingestion + ingestion backfill), Phase 3 (end-to-end validation + write Health Summary), Phase 4 (outputs + dashboard core), Phase 5 (performance loop + cron), Phase 6 (query + write-back). See design §21.
 

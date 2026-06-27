@@ -311,9 +311,26 @@ CREATE TABLE IF NOT EXISTS recompute_audit (
 """
 
 
+# Additive migrations applied after the base schema (idempotent; guarded by
+# PRAGMA table_info so re-running is safe). Append-only — never edit past entries.
+_MIGRATIONS = [
+    # candidate carries the specific change_type (Progression/Regression/Addition/
+    # Correction/Baseline/Revert) so the approve handler can write the change log.
+    ("candidates", "change_type", "ALTER TABLE candidates ADD COLUMN change_type TEXT"),
+]
+
+
+def _apply_migrations(conn) -> None:
+    for table, column, ddl in _MIGRATIONS:
+        cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+        if column not in cols:
+            conn.execute(ddl)
+
+
 def init_db(conn) -> None:
-    """Apply the full schema to an open sqlite3 connection (idempotent)."""
+    """Apply the full schema + additive migrations (idempotent)."""
     conn.executescript(SCHEMA_SQL)
+    _apply_migrations(conn)
     conn.commit()
 
 

@@ -124,8 +124,8 @@ def raise_candidates(conn, sub_target_id: str, picture: dict = None,
     for change in picture["supported_changes"]:
         to_value, reason = summarize(change["kind"], change["obs"], st["current_benchmark"])
         cid = new_candidate(
-            conn, change_class="benchmark-change", origin="system",
-            target_subtarget_id=sub_target_id,
+            conn, change_class="benchmark-change", change_type=change["kind"],
+            origin="system", target_subtarget_id=sub_target_id,
             from_value=st["current_benchmark"], to_value=to_value, reason=reason,
             confidence="medium",
             source_observation_ids=[o["id"] for o in change["obs"]],

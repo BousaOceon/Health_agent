@@ -94,13 +94,14 @@ def set_assessment(conn: sqlite3.Connection, observation_id: str, *, assessment,
 # ---------------------------------------------------------------------------
 
 def new_candidate(conn: sqlite3.Connection, *, change_class, origin, reason,
-                  target_subtarget_id=None, target_observation_id=None,
+                  change_type=None, target_subtarget_id=None, target_observation_id=None,
                   target_strategy_id=None, from_value=None, to_value=None,
                   confidence=None, source_finding_ids=None, source_observation_ids=None,
                   triggering_rule=None, backfill=0) -> str:
     cid = new_id("cand")
     insert(conn, "candidates", {
-        "id": cid, "change_class": change_class, "origin": origin, "reason": reason,
+        "id": cid, "change_class": change_class, "change_type": change_type,
+        "origin": origin, "reason": reason,
         "target_subtarget_id": target_subtarget_id,
         "target_observation_id": target_observation_id,
         "target_strategy_id": target_strategy_id,

@@ -1,6 +1,7 @@
 """Content routing, OCR, and Claude API extraction."""
 import json
 import logging
+import shutil
 from datetime import date
 from pathlib import Path
 
@@ -15,8 +16,12 @@ from src.config import ANTHROPIC_API_KEY, settings
 
 log = logging.getLogger(__name__)
 
-# Windows: tesseract not on PATH by default after UB-Mannheim install
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# Use tesseract from PATH (Linux/Pi). Fall back to the Windows install
+# location only when it is not on PATH (local Windows dev before the Pi).
+if shutil.which("tesseract") is None:
+    _win_tesseract = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    if Path(_win_tesseract).exists():
+        pytesseract.pytesseract.tesseract_cmd = _win_tesseract
 
 
 # ---------------------------------------------------------------------------

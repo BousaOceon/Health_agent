@@ -373,3 +373,72 @@ SUB_TARGETS = [
         "Pen findings run a capture-time severity screen ('screened, not silent'); drains at the paediatrician 6-monthly.",
         None, ndis=0, status="Active", severity="None"),
 ]
+
+
+# ---------------------------------------------------------------------------
+# Providers (migrated from the legacy Notion Providers DB, 13/06/2026)
+# aliases: comma-separated (matcher reads this). known_sender_emails /
+# known_sender_domains: Python lists -> JSON-encoded by the seeder.
+# ---------------------------------------------------------------------------
+
+_CTS = "Children's Therapy Services, 165 Myers St Geelong VIC 3220"
+_SPLOSE_EMAIL = ["notifications@splose.com"]
+_SPLOSE_DOMAIN = ["email.splose.com"]
+
+PROVIDERS = [
+    {"id": "prov_anna_harris", "title": "Dr Anna Harris", "type": "GP",
+     "aliases": "Anna Harris, Dr Harris", "ndis_funded": 0,
+     "primary_email": "", "known_sender_emails": [], "known_sender_domains": [],
+     "typical_report_format": "", "notes": ""},
+    {"id": "prov_brooke_doherty", "title": "Dr Brooke Doherty", "type": "Paed",
+     "aliases": "Brooke Doherty, Dr Doherty", "ndis_funded": 0,
+     "primary_email": "drbrookedoherty@gmail.com",
+     "known_sender_emails": ["reception@g-pg.com.au"], "known_sender_domains": [],
+     "typical_report_format": "", "notes": "Paediatrician."},
+    {"id": "prov_heidi_hearps", "title": "Heidi Hearps", "type": "Speech",
+     "aliases": "Heidi", "ndis_funded": 1,
+     "primary_email": "heidi.hearps@childrenstherapyservices.com.au",
+     "known_sender_emails": _SPLOSE_EMAIL, "known_sender_domains": _SPLOSE_DOMAIN,
+     "typical_report_format": "PDF",
+     "notes": "Developmental Educator + Speech Therapist. Type select has no Dev Educator option; set to Speech. " + _CTS},
+    {"id": "prov_madelaine_tomlin", "title": "Madelaine Tomlin", "type": "OT",
+     "aliases": "Maddy, Maddy Tomlin, M. Tomlin", "ndis_funded": 1,
+     "primary_email": "maddy.tomlin@childrenstherapyservices.com.au",
+     "known_sender_emails": _SPLOSE_EMAIL, "known_sender_domains": _SPLOSE_DOMAIN,
+     "typical_report_format": "PDF", "notes": _CTS},
+    {"id": "prov_kerry_britt", "title": "Kerry Britt", "type": "Physio",
+     "aliases": "Kerry", "ndis_funded": 1,
+     "primary_email": "Kerry.britt@childrenstherapyservices.com.au",
+     "known_sender_emails": _SPLOSE_EMAIL, "known_sender_domains": _SPLOSE_DOMAIN,
+     "typical_report_format": "PDF", "notes": _CTS},
+    {"id": "prov_sarah_henderson", "title": "Sarah Henderson", "type": "Continence",
+     "aliases": "Sarah", "ndis_funded": 1,
+     "primary_email": "admin@barwonkids.au",
+     "known_sender_emails": _SPLOSE_EMAIL, "known_sender_domains": [],
+     "typical_report_format": "PDF", "notes": "Continence physiotherapist. Barwon Kids."},
+    {"id": "prov_sally_barnard", "title": "Sally Barnard", "type": "Psychology",
+     "aliases": "Sally", "ndis_funded": 1,
+     "primary_email": "sally.barnard@childrenstherapyservices.com.au",
+     "known_sender_emails": _SPLOSE_EMAIL, "known_sender_domains": _SPLOSE_DOMAIN,
+     "typical_report_format": "PDF", "notes": _CTS},
+    {"id": "prov_alex_trezise", "title": "Alex Trezise", "type": "Psychology",
+     "aliases": "Alex", "ndis_funded": 1,
+     "primary_email": "alex.trezise@childrenstherapyservices.com.au",
+     "known_sender_emails": _SPLOSE_EMAIL, "known_sender_domains": _SPLOSE_DOMAIN,
+     "typical_report_format": "PDF", "notes": _CTS},
+    {"id": "prov_jennie_absalom", "title": "Jennie Absalom", "type": "Speech",
+     "aliases": "Jennie, Jenny Absalom, Jen", "ndis_funded": 1,
+     "primary_email": "jen.absalom@childrenstherapyservices.com.au",
+     "known_sender_emails": _SPLOSE_EMAIL, "known_sender_domains": _SPLOSE_DOMAIN,
+     "typical_report_format": "PDF", "notes": "Speech pathologist - assessment-only. " + _CTS},
+    {"id": "prov_amanda_tribe", "title": "Amanda Tribe", "type": "OT",
+     "aliases": "Amanda, A. Tribe", "ndis_funded": 1,
+     "primary_email": "amanda.tribe@childrenstherapyservices.com.au",
+     "known_sender_emails": _SPLOSE_EMAIL, "known_sender_domains": _SPLOSE_DOMAIN,
+     "typical_report_format": "PDF", "notes": _CTS},
+    {"id": "prov_hannah_chapman", "title": "Hannah Chapman", "type": "Speech",
+     "aliases": "Hannah", "ndis_funded": 1,
+     "primary_email": "",
+     "known_sender_emails": _SPLOSE_EMAIL, "known_sender_domains": _SPLOSE_DOMAIN,
+     "typical_report_format": "PDF", "notes": _CTS + " Story Champs sessions."},
+]

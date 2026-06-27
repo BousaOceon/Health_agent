@@ -3,10 +3,11 @@
 Idempotent — re-running upserts by id. Run after init_db():
     python -m src.db.seed
 """
+import json
 import logging
 
 from src.db.schema import init_db
-from src.db.seed_data import GOAL_PAGES, SUB_TARGETS
+from src.db.seed_data import GOAL_PAGES, PROVIDERS, SUB_TARGETS
 from src.db.store import connect, count, now_iso, upsert_by_id
 
 log = logging.getLogger(__name__)
@@ -29,6 +30,16 @@ def seed_sub_targets(conn) -> int:
     return len(SUB_TARGETS)
 
 
+def seed_providers(conn) -> int:
+    for p in PROVIDERS:
+        row = dict(p)
+        row["known_sender_emails"] = json.dumps(row.get("known_sender_emails") or [])
+        row["known_sender_domains"] = json.dumps(row.get("known_sender_domains") or [])
+        upsert_by_id(conn, "providers", row)
+    conn.commit()
+    return len(PROVIDERS)
+
+
 def seed_admin(conn) -> None:
     """Seed a placeholder admin user. password_hash is empty (cannot log in) until
     Flask auth is wired and a real password is set. candidates.decided_by points here."""
@@ -45,6 +56,7 @@ def seed_admin(conn) -> None:
 def seed_all(conn) -> None:
     seed_goal_pages(conn)
     seed_sub_targets(conn)
+    seed_providers(conn)
     seed_admin(conn)
 
 
@@ -105,6 +117,7 @@ def _summary(conn) -> None:
     n_active = count(conn, "sub_targets", "status = 'Active'")
     n_medical = count(conn, "sub_targets", "goal_id = 'goal_medical'")
     print(f"  goal_pages         : {n_goals}")
+    print(f"  providers          : {count(conn, 'providers')}")
     print(f"  sub_targets total  : {n_total}")
     print(f"    ndis=1 (goal-area): {n_goal_area}")
     print(f"    benchmarked       : {n_benched}")

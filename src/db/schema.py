@@ -325,6 +325,8 @@ _MIGRATIONS = [
     # candidate carries the specific change_type (Progression/Regression/Addition/
     # Correction/Baseline/Revert) so the approve handler can write the change log.
     ("candidates", "change_type", "ALTER TABLE candidates ADD COLUMN change_type TEXT"),
+    # source file/message ref for the data-load dedup + resumability.
+    ("appointments", "source_ref", "ALTER TABLE appointments ADD COLUMN source_ref TEXT"),
 ]
 
 

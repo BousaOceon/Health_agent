@@ -28,15 +28,18 @@ def _resolve_st(conn, sid):
 
 
 def persist_extraction(conn, extracted: dict, *, backfill=0, gmail_link=None,
-                       source_email=None, commit=True) -> str:
+                       source_email=None, source_ref=None, content_sources=None,
+                       commit=True) -> str:
     appt = extracted.get("appointment", {}) or {}
     appointment_id = writes.new_appointment(
         conn, title=appt.get("title"), appointment_date=appt.get("appointment_date"),
         meeting_type=appt.get("meeting_type"), type=appt.get("appointment_type"),
         report_received_date=appt.get("report_received_date"), source_email=source_email,
-        gmail_link=gmail_link, backfill=backfill,
+        gmail_link=gmail_link, source_ref=source_ref, backfill=backfill,
         sub_targets_touched=appt.get("sub_targets_touched"),
-        content_sources=appt.get("content_sources"), status="draft")
+        # file-derived content_sources (the actual source) override the model's guess
+        content_sources=content_sources if content_sources is not None else appt.get("content_sources"),
+        status="draft")
     if appt.get("summary"):
         conn.execute("UPDATE appointments SET summary=? WHERE id=?", (appt["summary"], appointment_id))
     if extracted.get("self_review"):

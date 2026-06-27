@@ -16,7 +16,7 @@ from src.db.store import insert, new_id, now_iso
 
 def new_appointment(conn: sqlite3.Connection, *, title=None, appointment_date=None,
                     meeting_type=None, type=None, report_received_date=None,
-                    source_email=None, gmail_link=None, backfill=0,
+                    source_email=None, gmail_link=None, source_ref=None, backfill=0,
                     sub_targets_touched=None, content_sources=None,
                     status="draft") -> str:
     aid = new_id("appt")
@@ -24,7 +24,8 @@ def new_appointment(conn: sqlite3.Connection, *, title=None, appointment_date=No
         "id": aid, "title": title, "appointment_date": appointment_date,
         "meeting_type": meeting_type, "type": type,
         "report_received_date": report_received_date, "source_email": source_email,
-        "gmail_link": gmail_link, "backfill": backfill, "status": status,
+        "gmail_link": gmail_link, "source_ref": source_ref, "backfill": backfill,
+        "status": status,
         "sub_targets_touched": json.dumps(sub_targets_touched or []),
         "content_sources": json.dumps(content_sources or []),
     })

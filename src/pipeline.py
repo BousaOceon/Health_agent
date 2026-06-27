@@ -14,8 +14,8 @@ from src.engine import summarize as summ
 from src.extract import extract_report
 
 
-def ingest_content(conn, content: str, *, backfill=0, gmail_link=None,
-                   source_email=None, call=None, notify=None) -> tuple[str, dict]:
+def ingest_content(conn, content: str, *, backfill=0, gmail_link=None, source_email=None,
+                   source_ref=None, content_sources=None, call=None, notify=None) -> tuple[str, dict]:
     """Extract `content`, persist it as a draft, and run the capture-time safety
     screen (fires immediately, before confirmation). Returns (appointment_id, extracted)."""
     extracted = extract_report(
@@ -25,7 +25,8 @@ def ingest_content(conn, content: str, *, backfill=0, gmail_link=None,
         active_strategy_titles=injection.active_strategy_titles(conn),
         call=call)
     appointment_id = persist.persist_extraction(
-        conn, extracted, backfill=backfill, gmail_link=gmail_link, source_email=source_email)
+        conn, extracted, backfill=backfill, gmail_link=gmail_link, source_email=source_email,
+        source_ref=source_ref, content_sources=content_sources)
     safety.screen_appointment_for_safety(conn, appointment_id, notify=notify)
     return appointment_id, extracted
 

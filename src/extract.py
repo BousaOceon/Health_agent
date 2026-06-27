@@ -1,7 +1,10 @@
 """Content routing, OCR, and Claude API extraction."""
+import email
 import logging
 import shutil
+import tempfile
 from datetime import date
+from email import policy
 from pathlib import Path
 
 import pdfplumber
@@ -80,6 +83,129 @@ def prepare_content(source_type: str, path: Path = None, raw_text: str = None) -
         return f"EMAIL BODY:\n{body}"
     else:
         raise ValueError(f"Unknown source_type: {source_type}")
+
+
+# ---------------------------------------------------------------------------
+# Native-vs-scanned PDF auto-detection (OCR density check, design §18)
+# ---------------------------------------------------------------------------
+
+def extract_pdf_auto(path: Path, *, min_chars_per_page: int = 50) -> tuple[str, str]:
+    """Try native text; if density is too low (a scanned/image PDF), fall back to
+    OCR. Returns (text, source) where source is 'native-pdf' or 'scanned-image'."""
+    path = Path(path)
+    text = extract_native_pdf(path)
+    try:
+        with pdfplumber.open(str(path)) as pdf:
+            n_pages = len(pdf.pages)
+    except Exception:
+        n_pages = 1
+    if n_pages and len(text.strip()) < min_chars_per_page * n_pages:
+        try:
+            ocr = extract_scanned_pdf(path)
+            if len(ocr.strip()) > len(text.strip()):
+                return ocr, "scanned-image"
+        except Exception as e:
+            log.warning("OCR fallback failed for %s: %s", path.name, e)
+    return text, "native-pdf"
+
+
+# ---------------------------------------------------------------------------
+# .eml email files (one .eml = one encounter; quoted chain is in the body)
+# ---------------------------------------------------------------------------
+
+def _eml_text_body(msg) -> str:
+    if msg.is_multipart():
+        for part in msg.walk():
+            cd = str(part.get("Content-Disposition") or "")
+            if part.get_content_type() == "text/plain" and "attachment" not in cd:
+                try:
+                    return part.get_content()
+                except Exception:
+                    pass
+        for part in msg.walk():
+            cd = str(part.get("Content-Disposition") or "")
+            if part.get_content_type() == "text/html" and "attachment" not in cd:
+                try:
+                    return extract_email_body(part.get_content())
+                except Exception:
+                    pass
+        return ""
+    try:
+        return (extract_email_body(msg.get_content())
+                if msg.get_content_type() == "text/html" else msg.get_content())
+    except Exception:
+        return ""
+
+
+def _eml_attachments(msg) -> list[tuple]:
+    """Extract text from PDF / docx / image attachments. Returns (name, text, source)."""
+    out = []
+    for part in msg.walk():
+        cd = str(part.get("Content-Disposition") or "")
+        filename = part.get_filename()
+        if "attachment" not in cd and not filename:
+            continue
+        if part.get_content_type() in ("text/plain", "text/html"):
+            continue
+        payload = part.get_payload(decode=True)
+        if not payload:
+            continue
+        suffix = Path(filename).suffix.lower() if filename else ""
+        text, source, tmp = None, None, None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
+                tf.write(payload)
+                tmp = Path(tf.name)
+            if suffix == ".pdf":
+                text, source = extract_pdf_auto(tmp)
+            elif suffix == ".docx":
+                text, source = extract_docx(tmp), "docx"
+            elif suffix in (".jpg", ".jpeg", ".png", ".tif", ".tiff"):
+                text, source = extract_image(tmp), "scanned-image"
+        except Exception as e:
+            log.warning("attachment extract failed (%s): %s", filename, e)
+        finally:
+            if tmp:
+                tmp.unlink(missing_ok=True)
+        if text and text.strip():
+            out.append((filename or f"attachment{suffix}", text, source or "attachment"))
+    return out
+
+
+def extract_eml(path: Path) -> tuple[str, list[str]]:
+    """Parse a .eml into labelled thread text + content_sources list."""
+    path = Path(path)
+    msg = email.message_from_bytes(path.read_bytes(), policy=policy.default)
+    header = (f"EMAIL\nFrom: {msg.get('From', '')}\nDate: {msg.get('Date', '')}\n"
+              f"Subject: {msg.get('Subject', '')}\n\n{_eml_text_body(msg)}")
+    parts, sources = [header], ["email-thread"]
+    for name, text, source in _eml_attachments(msg):
+        parts.append(f"\nATTACHMENT ({name}):\n{text}")
+        sources.append(source)
+    return "\n".join(parts), sources
+
+
+SUPPORTED_SUFFIXES = {".pdf", ".docx", ".eml", ".jpg", ".jpeg", ".png",
+                      ".tif", ".tiff", ".txt", ".html", ".htm"}
+
+
+def prepare_file(path: Path) -> tuple[str, list[str]]:
+    """Route a file to the right extractor. Returns (labelled content, content_sources)."""
+    path = Path(path)
+    suffix = path.suffix.lower()
+    if suffix == ".pdf":
+        content, source = extract_pdf_auto(path)
+        return f"ATTACHMENT ({path.name}):\n{content}", [source]
+    if suffix in (".jpg", ".jpeg", ".png", ".tif", ".tiff"):
+        return f"ATTACHMENT ({path.name}):\n{extract_image(path)}", ["scanned-image"]
+    if suffix == ".docx":
+        return f"ATTACHMENT ({path.name}):\n{extract_docx(path)}", ["docx"]
+    if suffix == ".eml":
+        return extract_eml(path)
+    if suffix in (".txt", ".html", ".htm"):
+        return (f"EMAIL BODY:\n{extract_email_body(path.read_text(encoding='utf-8', errors='ignore'))}",
+                ["email-body"])
+    raise ValueError(f"unsupported file type: {suffix}")
 
 
 # ---------------------------------------------------------------------------

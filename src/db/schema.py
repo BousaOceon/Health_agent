@@ -65,6 +65,14 @@ CREATE TABLE IF NOT EXISTS appointments (
     flags           TEXT                       -- per-report self_review JSON (NOT candidates)
 );
 
+-- All providers present at an appointment (the authoritative multi-relation for
+-- retrieval/archive — design §16). The schema-doc DDL omitted this; added in 1d.
+CREATE TABLE IF NOT EXISTS appointment_providers (
+    appointment_id TEXT NOT NULL REFERENCES appointments(id),
+    provider_id    TEXT NOT NULL REFERENCES providers(id),
+    PRIMARY KEY (appointment_id, provider_id)
+);
+
 -- ============================================================
 -- THE SPINE
 -- ============================================================
@@ -336,8 +344,8 @@ def init_db(conn) -> None:
 
 # Tables we expect to exist after init_db — used by the connectivity check.
 EXPECTED_TABLES = [
-    "providers", "goal_pages", "appointments", "sub_targets", "findings",
-    "observations", "strategies", "strategy_observations", "benchmark_change_log",
+    "providers", "goal_pages", "appointments", "appointment_providers", "sub_targets",
+    "findings", "observations", "strategies", "strategy_observations", "benchmark_change_log",
     "strategy_change_log", "candidates", "health_actions", "users", "recompute_audit",
 ]
 

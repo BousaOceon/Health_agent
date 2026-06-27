@@ -1,18 +1,16 @@
 """Content routing, OCR, and Claude API extraction."""
-import json
 import logging
 import shutil
 from datetime import date
 from pathlib import Path
 
-import anthropic
 import pdfplumber
 import pytesseract
 from bs4 import BeautifulSoup
 from docx import Document
 from PIL import Image
 
-from src.config import ANTHROPIC_API_KEY, settings
+from src.config import settings
 
 log = logging.getLogger(__name__)
 
@@ -91,50 +89,34 @@ def prepare_content(source_type: str, path: Path = None, raw_text: str = None) -
 # the prompt body contains JSON braces.
 # ---------------------------------------------------------------------------
 
-def extract_report(content: str, goals_with_benchmarks: str = "", provider_list_text: str = "") -> dict:
-    """Send prepared content to Claude Sonnet for structured extraction.
+def extract_report(content: str, *, routing_list: str = "", provider_list_text: str = "",
+                   active_strategy_titles: str = "", call=None) -> dict:
+    """Send prepared content to Claude Sonnet for structured extraction (UNASSESSED shells).
 
-    Args:
-        content: Prepared labelled text from prepare_content().
-        goals_with_benchmarks: Formatted text from fetch_goals_with_benchmarks_text().
-        provider_list_text: Formatted text from fetch_provider_list_text().
-
-    Returns the full extracted dict including self_review.
+    Injection (Phase 1d): the sub-target routing list (title + scope, NO benchmarks),
+    the provider list, and active strategy titles. `call` is the claude seam (mockable).
+    Returns the full extracted dict (appointment / findings / observations /
+    strategy_observations / actions / self_review).
     """
+    from src import claude
+
     today = date.today().isoformat()
-    prompt_template = settings["extraction_prompt"]
-    extraction_context = settings.get("extraction_context", "")
-
-    if not goals_with_benchmarks:
-        goals_with_benchmarks = "(No NDIS goals provided — leave goals_addressed and goal_link empty, return empty goal_progress_notes array)"
-    if not provider_list_text:
-        provider_list_text = "(No provider list available)"
-
-    prompt = (prompt_template
-              .replace("###EXTRACTION_CONTEXT###", extraction_context)
-              .replace("###PROVIDER_LIST###", provider_list_text)
+    prompt = (settings["extraction_prompt"]
+              .replace("###EXTRACTION_CONTEXT###", settings.get("extraction_context", ""))
+              .replace("###PROVIDER_LIST###", provider_list_text or "(no providers on file)")
               .replace("###TODAY###", today)
-              .replace("###GOALS_WITH_BENCHMARKS###", goals_with_benchmarks)
+              .replace("###SUBTARGET_ROUTING_LIST###", routing_list or "(no sub-targets)")
+              .replace("###ACTIVE_STRATEGY_TITLES###", active_strategy_titles or "(no active strategies)")
               .replace("###REPORT_TEXT###", content))
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=16000,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    text = response.content[0].text.strip()
-    if text.startswith("```"):
-        text = text.split("```", 2)[1]
-        if text.startswith("json"):
-            text = text[4:]
-        text = text.strip()
-    return json.loads(text)
+    call = call or claude.call
+    text = call(prompt, model=claude.SONNET, max_tokens=16000)
+    return claude.parse_json(text)
 
 
 if __name__ == "__main__":
+    import json
     import sys
-    from src.notion_writer import fetch_ndis_goals, fetch_goals_with_benchmarks_text, fetch_provider_list_text
 
     if len(sys.argv) < 2:
         print("Usage: python -m src.extract <path_to_file>")
@@ -153,14 +135,15 @@ if __name__ == "__main__":
     print("--- PREPARED CONTENT (first 500 chars) ---")
     print(content[:500])
 
-    goals_map = fetch_ndis_goals()
-    print(f"\n--- NDIS GOALS ({len(goals_map)} loaded) ---")
-    for name in goals_map:
-        print(f"  {name}")
-
-    goals_with_benchmarks = fetch_goals_with_benchmarks_text(goals_map)
-    provider_list = fetch_provider_list_text()
-
+    from src.db.store import connect
+    from src.engine import injection
+    conn = connect()
     print("\n--- EXTRACTION RESULT ---")
-    result = extract_report(content, goals_with_benchmarks, provider_list)
+    result = extract_report(
+        content,
+        routing_list=injection.subtarget_routing_list(conn),
+        provider_list_text=injection.provider_list(conn),
+        active_strategy_titles=injection.active_strategy_titles(conn),
+    )
+    conn.close()
     print(json.dumps(result, indent=2))

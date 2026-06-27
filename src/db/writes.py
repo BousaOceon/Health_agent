@@ -90,14 +90,31 @@ def set_assessment(conn: sqlite3.Connection, observation_id: str, *, assessment,
 
 
 # ---------------------------------------------------------------------------
+# Strategy lane
+# ---------------------------------------------------------------------------
+
+def new_strategy(conn: sqlite3.Connection, *, title, sub_target_id, status="Active",
+                 definition=None, introduced=None, last_referenced=None,
+                 introduced_by=None, source_encounter_id=None) -> str:
+    sid = new_id("strat")
+    insert(conn, "strategies", {
+        "id": sid, "title": title, "sub_target_id": sub_target_id, "status": status,
+        "definition": definition, "introduced": introduced,
+        "last_referenced": last_referenced or introduced,
+        "introduced_by": introduced_by, "source_encounter_id": source_encounter_id,
+    })
+    return sid
+
+
+# ---------------------------------------------------------------------------
 # Candidates
 # ---------------------------------------------------------------------------
 
 def new_candidate(conn: sqlite3.Connection, *, change_class, origin, reason,
                   change_type=None, target_subtarget_id=None, target_observation_id=None,
-                  target_strategy_id=None, from_value=None, to_value=None,
-                  confidence=None, source_finding_ids=None, source_observation_ids=None,
-                  triggering_rule=None, backfill=0) -> str:
+                  target_strategy_id=None, target_strategy_obs_id=None, from_value=None,
+                  to_value=None, confidence=None, source_finding_ids=None,
+                  source_observation_ids=None, triggering_rule=None, backfill=0) -> str:
     cid = new_id("cand")
     insert(conn, "candidates", {
         "id": cid, "change_class": change_class, "change_type": change_type,
@@ -105,6 +122,7 @@ def new_candidate(conn: sqlite3.Connection, *, change_class, origin, reason,
         "target_subtarget_id": target_subtarget_id,
         "target_observation_id": target_observation_id,
         "target_strategy_id": target_strategy_id,
+        "target_strategy_obs_id": target_strategy_obs_id,
         "from_value": from_value, "to_value": to_value, "confidence": confidence,
         "source_finding_ids": json.dumps(source_finding_ids) if source_finding_ids else None,
         "source_observation_ids": json.dumps(source_observation_ids) if source_observation_ids else None,

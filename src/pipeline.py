@@ -9,14 +9,15 @@ confirm_report : flip to confirmed -> Pass 1 grades (Haiku) -> Pass 2 reconciles
 (src.engine.apply.apply_candidate), surfaced through the dashboard.
 """
 from src.db import writes
-from src.engine import injection, pass1, pass2, persist
+from src.engine import injection, pass1, pass2, persist, safety, strategy
 from src.engine import summarize as summ
 from src.extract import extract_report
 
 
 def ingest_content(conn, content: str, *, backfill=0, gmail_link=None,
-                   source_email=None, call=None) -> tuple[str, dict]:
-    """Extract `content` and persist it as a draft. Returns (appointment_id, extracted)."""
+                   source_email=None, call=None, notify=None) -> tuple[str, dict]:
+    """Extract `content`, persist it as a draft, and run the capture-time safety
+    screen (fires immediately, before confirmation). Returns (appointment_id, extracted)."""
     extracted = extract_report(
         content,
         routing_list=injection.subtarget_routing_list(conn),
@@ -25,6 +26,7 @@ def ingest_content(conn, content: str, *, backfill=0, gmail_link=None,
         call=call)
     appointment_id = persist.persist_extraction(
         conn, extracted, backfill=backfill, gmail_link=gmail_link, source_email=source_email)
+    safety.screen_appointment_for_safety(conn, appointment_id, notify=notify)
     return appointment_id, extracted
 
 
@@ -43,5 +45,10 @@ def confirm_report(conn, appointment_id: str, *, call=None, summarize=None, back
     candidates = []
     for sid in touched:
         candidates += pass2.reconcile(conn, sid, summarize, backfill=backfill, commit=False)
+
+    # strategy lane: set-diff the appointment's strategy mentions against the inventory
+    strategy_candidates = strategy.setdiff(
+        conn, appointment_id, match=strategy.make_matcher(call=call), commit=False)
     conn.commit()
-    return {"grades": grades, "candidates": candidates, "touched": touched}
+    return {"grades": grades, "candidates": candidates,
+            "strategy_candidates": strategy_candidates, "touched": touched}

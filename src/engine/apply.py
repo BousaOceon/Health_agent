@@ -11,10 +11,17 @@ Corrections DO cascade. assess() (Pass-1 Haiku) is injected for the cascade.
 import json
 
 from src.db.store import now_iso
+from src.db.writes import new_strategy
 from src.engine import cascade as cascade_mod
 from src.engine.benchmark import write_benchmark_change
+from src.engine.strategy import write_strategy_change
 
-_STRATEGY_CLASSES = {"strategy-diff", "strategy-status-correction"}
+
+def _strategy_obs_date(conn, sobs_id):
+    if not sobs_id:
+        return None
+    r = conn.execute("SELECT date FROM strategy_observations WHERE id=?", (sobs_id,)).fetchone()
+    return r["date"] if r else None
 
 
 def _obs_dates(conn, obs_ids):
@@ -51,10 +58,47 @@ def apply_candidate(conn, candidate_id, *, assess=None, decided_by="Matt",
     obs_ids = json.loads(c["source_observation_ids"]) if c["source_observation_ids"] else []
     result = {"candidate_id": candidate_id, "change_class": cls}
 
-    if cls in _STRATEGY_CLASSES:
-        raise NotImplementedError(f"{cls} apply is part of the strategy-lane build (later in Part A)")
+    if cls == "strategy-diff":
+        change_type = c["change_type"] or "Added"
+        eff = _strategy_obs_date(conn, c["target_strategy_obs_id"]) or c["created_at"][:10]
+        if change_type == "Added":
+            comp_id = new_strategy(conn, title=(c["to_value"] or "Untitled tactic")[:120],
+                                   sub_target_id=c["target_subtarget_id"], status="Active",
+                                   definition=c["to_value"], introduced=eff, last_referenced=eff)
+            if c["target_strategy_obs_id"]:
+                conn.execute("UPDATE strategy_observations SET component_id=? WHERE id=?",
+                             (comp_id, c["target_strategy_obs_id"]))
+            log_id = write_strategy_change(conn, component_id=comp_id, sub_target_id=c["target_subtarget_id"],
+                                           change_type="Added", to_value=c["to_value"], reason=c["reason"],
+                                           effective_date=eff, candidate_id=candidate_id)
+        else:
+            comp = conn.execute("SELECT sub_target_id, definition FROM strategies WHERE id=?",
+                                (c["target_strategy_id"],)).fetchone()
+            sub = comp["sub_target_id"] if comp else c["target_subtarget_id"]
+            from_val = comp["definition"] if comp else None
+            if change_type == "Adjusted":
+                conn.execute("UPDATE strategies SET definition=? WHERE id=?",
+                             (c["to_value"], c["target_strategy_id"]))
+            elif change_type == "Discontinued":
+                conn.execute("UPDATE strategies SET status='Inactive-superseded', outcome_note=? WHERE id=?",
+                             (c["reason"], c["target_strategy_id"]))
+            elif change_type == "Achieved":
+                conn.execute("UPDATE strategies SET status='Achieved', outcome_note=? WHERE id=?",
+                             (c["reason"], c["target_strategy_id"]))
+            log_id = write_strategy_change(conn, component_id=c["target_strategy_id"], sub_target_id=sub,
+                                           change_type=change_type, from_value=from_val, to_value=c["to_value"],
+                                           reason=c["reason"], effective_date=eff, candidate_id=candidate_id)
+        _finalise(conn, candidate_id, decided_by=decided_by, reason_class=reason_class, note=note,
+                  log_table="strategy_change_log", log_id=log_id)
+        result["log_id"] = log_id
 
-    if cls in ("benchmark-change", "benchmark-correction", "benchmark-revert"):
+    elif cls == "strategy-status-correction":
+        # in-place fix of a strategy observation's status_read; NO log (candidate is the audit)
+        conn.execute("UPDATE strategy_observations SET status_read=?, status_superseded=1 WHERE id=?",
+                     (c["to_value"], c["target_strategy_obs_id"]))
+        _finalise(conn, candidate_id, decided_by=decided_by, reason_class=reason_class, note=note)
+
+    elif cls in ("benchmark-change", "benchmark-correction", "benchmark-revert"):
         if not c["to_value"]:
             raise ValueError(f"{cls} candidate {candidate_id} has no to_value (benchmark text)")
         change_type = c["change_type"] or ("Correction" if cls == "benchmark-correction"

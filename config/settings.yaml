@@ -1,5 +1,12 @@
+# --- Local SQLite store (system of record) ---
+db_path: data/health.db
+backup:
+  target: ""            # off-box destination for the nightly SQLite backup (set before go-live)
+  time: "02:00"
+
 polling_interval_hours: 4
 brief_lead_time_hours: 48
+brief_scope_window_months: 6   # single-provider brief working-set window (design §14)
 weekly_digest_day: saturday
 weekly_digest_time: "07:00"
 bridge_task_when: "2. Monday"

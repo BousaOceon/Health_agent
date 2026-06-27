@@ -11,6 +11,7 @@ processed/
 logs/
 *.log
 data/
+backups/
 *.db
 *.db-journal
 *.db-wal

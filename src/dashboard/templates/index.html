@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Status · Health Agent{% endblock %}
+{% block content %}
+<h1>Status</h1>
+<div class="cards">
+  <div class="card"><div class="num">{{ counts.goal_pages }}</div><div class="lbl">Goal pages</div></div>
+  <div class="card"><div class="num">{{ counts.sub_targets }}</div><div class="lbl">Sub-targets</div></div>
+  <div class="card"><div class="num">{{ counts.sub_targets_benchmarked }}</div><div class="lbl">Benchmarked</div></div>
+  <div class="card"><div class="num">{{ counts.sub_targets_adjacent }}</div><div class="lbl">Adjacent-watch</div></div>
+  <div class="card"><div class="num">{{ counts.providers }}</div><div class="lbl">Providers</div></div>
+  <div class="card"><div class="num">{{ counts.observations }}</div><div class="lbl">Observations</div></div>
+  <div class="card hl"><div class="num">{{ counts.candidates_pending }}</div><div class="lbl">Candidates pending</div></div>
+  <div class="card"><div class="num">{{ counts.benchmark_log }}</div><div class="lbl">Benchmark log entries</div></div>
+</div>
+<p class="muted">Phase 1c structural stand-up. The engine that produces observations and candidates
+(Pass&nbsp;1 / Pass&nbsp;2 / cascade) and the historical data load arrive in Phase&nbsp;1d.</p>
+{% endblock %}

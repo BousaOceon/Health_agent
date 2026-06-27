@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Candidates · Health Agent{% endblock %}
+{% block content %}
+<h1>Candidates <span class="count">{{ counts.candidates_pending }} pending</span></h1>
+<p class="muted">Proposed changes, grouped by sub-target. Approve/reject records the decision and a typed
+reason; the change itself is applied by the Phase&nbsp;1d engine.</p>
+
+{% if not groups %}
+  <div class="empty">
+    <p>No pending candidates.</p>
+    <p class="muted">Candidates are produced by the Pass&nbsp;2 reconciliation engine during the
+    Phase&nbsp;1d data load. This page is the day-one review surface, ready for them.</p>
+  </div>
+{% endif %}
+
+{% for group in groups %}
+  <section class="group">
+    <h2>{{ group.subtarget_title }} <span class="goal">{{ group.goal_title }}</span></h2>
+    {% for c in group.candidates %}
+      <div class="candidate">
+        <div class="meta">
+          <span class="chip chip-{{ c.change_class }}">{{ c.change_class }}</span>
+          <span class="chip chip-origin">{{ c.origin }}</span>
+          {% if c.confidence %}<span class="chip chip-conf">{{ c.confidence }}</span>{% endif %}
+        </div>
+        <div class="reason">{{ c.reason }}</div>
+        {% if c.from_value or c.to_value %}
+        <div class="diff">
+          <div class="from"><span class="dlbl">from</span>{{ c.from_value or '—' }}</div>
+          <div class="to"><span class="dlbl">to</span>{{ c.to_value or '—' }}</div>
+        </div>
+        {% endif %}
+        <form class="actions" method="post" action="{{ url_for('dashboard.decide', candidate_id=c.id) }}">
+          <input type="text" name="note" placeholder="note (optional)">
+          <select name="reason_class">
+            <option value="">reason…</option>
+            <option value="misgrade">misgrade</option>
+            <option value="defensible-but-wrong">defensible-but-wrong</option>
+            <option value="wrong-anchor">wrong-anchor</option>
+            <option value="wrong-fact">wrong-fact</option>
+            <option value="right-call-wrong-moment">right-call-wrong-moment</option>
+            <option value="not-a-real-finding">not-a-real-finding</option>
+          </select>
+          <button class="btn approve" name="decision" value="approved">Approve</button>
+          <button class="btn reject" name="decision" value="rejected">Reject</button>
+        </form>
+      </div>
+    {% endfor %}
+  </section>
+{% endfor %}
+{% endblock %}
